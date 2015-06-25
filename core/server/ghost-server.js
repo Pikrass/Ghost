@@ -4,6 +4,7 @@ var Promise = require('bluebird'),
     chalk = require('chalk'),
     fs = require('fs'),
     semver = require('semver'),
+    systemd = require('systemd'),
     packageInfo = require('../../package.json'),
     errors = require('./errors'),
     config = require('./config');
@@ -39,25 +40,30 @@ GhostServer.prototype.start = function (externalApp) {
         rootApp = externalApp ? externalApp : self.rootApp;
 
     return new Promise(function (resolve) {
-        var socketConfig = config.getSocket();
-
-        if (socketConfig) {
-            // Make sure the socket is gone before trying to create another
-            try {
-                fs.unlinkSync(socketConfig.path);
-            } catch (e) {
-                // We can ignore this.
-            }
-
-            self.httpServer = rootApp.listen(socketConfig.path);
-
-            fs.chmod(socketConfig.path, socketConfig.permissions);
+        if(process.env.LISTEN_PID > 0) {
+            // We're given a socket by systemd
+            self.httpServer = rootApp.listen('systemd');
         } else {
-            self.httpServer = rootApp.listen(
-                config.server.port,
-                config.server.host
-            );
-        }
+			var socketConfig = config.getSocket();
+
+			if (socketConfig) {
+				// Make sure the socket is gone before trying to create another
+				try {
+					fs.unlinkSync(socketConfig.path);
+				} catch (e) {
+					// We can ignore this.
+				}
+
+				self.httpServer = rootApp.listen(socketConfig.path);
+
+				fs.chmod(socketConfig.path, socketConfig.permissions);
+			} else {
+				self.httpServer = rootApp.listen(
+					config.server.port,
+					config.server.host
+				);
+			}
+		}
 
         self.httpServer.on('error', function (error) {
             if (error.errno === 'EADDRINUSE') {
